@@ -1,0 +1,1774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Character Chat | Production Build</title>
+    <meta name="description" content="Local-first AI Character Chat with Vector Memory and Custom Scripting">
+    
+    <!-- Production Styles -->
+    <style>
+        :root {
+            --bg-app: #0f1115;
+            --bg-panel: #181b21;
+            --bg-message-ai: #22262e;
+            --bg-message-user: #2b303b;
+            --bg-input: #111318;
+            --accent-primary: #6366f1;
+            --accent-hover: #4f46e5;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --border-subtle: #374151;
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            --sidebar-width: 300px;
+            --transition-speed: 0.2s;
+            --app-font-size: 16px;
+        }
+
+        * { box-sizing: border-box; outline: none; }
+        
+        body {
+            margin: 0;
+            background-color: var(--bg-app);
+            color: var(--text-primary);
+            font-family: var(--font-main);
+            font-size: var(--app-font-size);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* Utility */
+        .hidden { display: none !important; }
+        .flex { display: flex; }
+        .flex-col { flex-direction: column; }
+        .grow { flex-grow: 1; }
+        .scroll-y { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-subtle) transparent; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-4 { gap: 1rem; }
+        .items-center { align-items: center; }
+        .justify-between { justify-content: space-between; }
+        .text-sm { font-size: 0.85rem; }
+        .text-xs { font-size: 0.75rem; }
+        .text-secondary { color: var(--text-secondary); }
+        .w-full { width: 100%; }
+        
+        /* Layout */
+        #app-layout {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        /* Sidebar */
+        #sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--bg-panel);
+            border-right: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            transition: transform var(--transition-speed) ease;
+            z-index: 20;
+        }
+
+        .sidebar-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-primary {
+            background-color: var(--accent-primary);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-weight: 600;
+            transition: background var(--transition-speed);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .btn-primary:hover { background-color: var(--accent-hover); }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+        
+        .btn-secondary {
+            background-color: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-weight: 500;
+            transition: all var(--transition-speed);
+        }
+        .btn-secondary:hover { background-color: rgba(255,255,255,0.05); border-color: var(--text-secondary); }
+        
+        .btn-icon {
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            color: var(--text-primary);
+            width: 36px; height: 36px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+        }
+        .btn-icon:hover { background: rgba(255,255,255,0.1); border-color: var(--text-secondary); }
+
+        .thread-list { padding: 0.5rem; }
+        
+        .thread-card {
+            padding: 0.75rem;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: background 0.1s;
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            border: 1px solid transparent;
+        }
+
+        .thread-card:hover { background-color: rgba(255,255,255,0.05); }
+        .thread-card.active { 
+            background-color: rgba(99, 102, 241, 0.15); 
+            border-color: var(--accent-primary);
+        }
+
+        .avatar-sm {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-size: cover;
+            background-position: center;
+            background-color: #333;
+            flex-shrink: 0;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .thread-info { overflow: hidden; }
+        .thread-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.95rem; }
+        .thread-preview { color: var(--text-secondary); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Main Chat Area */
+        #main-stage {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background: radial-gradient(circle at top right, #1c1f26 0%, var(--bg-app) 40%);
+            background-size: cover;
+            background-position: center;
+        }
+
+        header {
+            height: 60px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            padding: 0 1.5rem;
+            background-color: rgba(15, 17, 21, 0.9);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+            justify-content: space-between;
+        }
+
+        .mobile-menu-btn {
+            display: none; /* Desktop default */
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            margin-right: 1rem;
+        }
+
+        #chat-feed {
+            flex-grow: 1;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            scroll-behavior: smooth;
+        }
+
+        .message-row {
+            display: flex;
+            gap: 1rem;
+            max-width: 900px;
+            margin: 0 auto;
+            width: 100%;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .message-row.user { flex-direction: row-reverse; }
+
+        .message-bubble {
+            background-color: var(--bg-message-ai);
+            padding: 1rem 1.25rem;
+            border-radius: var(--radius-md);
+            border-top-left-radius: 2px;
+            max-width: 80%;
+            line-height: 1.6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        .message-row.user .message-bubble {
+            background-color: var(--bg-message-user);
+            border-top-left-radius: var(--radius-md);
+            border-top-right-radius: 2px;
+        }
+
+        .message-sender {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+            font-weight: 600;
+        }
+
+        /* RAG Memory Inspector */
+        .memory-pill {
+            display: inline-flex; align-items: center; gap: 4px;
+            background: rgba(99, 102, 241, 0.2); border: 1px solid var(--accent-primary);
+            color: var(--accent-primary); font-size: 0.7rem; padding: 2px 8px;
+            border-radius: 12px; cursor: help; margin-top: 0.5rem;
+            transition: all 0.2s;
+        }
+        .memory-pill:hover { background: var(--accent-primary); color: white; }
+        
+        .memory-popover {
+            display: none; position: absolute; bottom: 100%; left: 0; 
+            background: var(--bg-panel); border: 1px solid var(--border-subtle);
+            padding: 0.75rem; border-radius: var(--radius-sm);
+            width: 250px; font-size: 0.8rem; color: var(--text-secondary);
+            box-shadow: var(--shadow-lg); z-index: 10;
+        }
+        .memory-pill:hover + .memory-popover { display: block; }
+
+        /* Markdown & Code Styles (Atom One Dark Theme) */
+        .prose p { margin-top: 0; margin-bottom: 0.5rem; }
+        .prose p:last-child { margin-bottom: 0; }
+        .prose pre { 
+            background: #282c34; 
+            padding: 1rem; 
+            border-radius: var(--radius-sm); 
+            overflow-x: auto; 
+            font-family: var(--font-mono);
+            font-size: 0.9em;
+            border: 1px solid var(--border-subtle);
+        }
+        .prose code {
+            font-family: var(--font-mono);
+            background: rgba(255,255,255,0.1);
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        /* Highlight.js overrides */
+        .hljs { display: block; overflow-x: auto; padding: 0.5em; color: #abb2bf; background: #282c34; }
+        .hljs-comment, .hljs-quote { color: #5c6370; font-style: italic; }
+        .hljs-doctag, .hljs-keyword, .hljs-formula { color: #c678dd; }
+        .hljs-section, .hljs-name, .hljs-selector-tag, .hljs-deletion, .hljs-subst { color: #e06c75; }
+        .hljs-literal { color: #56b6c2; }
+        .hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: #98c379; }
+        .hljs-attr, .hljs-variable, .hljs-template-variable, .hljs-type, .hljs-selector-class, .hljs-selector-attr, .hljs-selector-pseudo, .hljs-number { color: #d19a66; }
+        .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta, .hljs-selector-id, .hljs-title { color: #61aeee; }
+        .hljs-emphasis { font-style: italic; }
+        .hljs-strong { font-weight: bold; }
+        .hljs-link { text-decoration: underline; }
+
+
+        /* Input Area */
+        #input-area {
+            padding: 1.5rem;
+            background-color: var(--bg-app);
+            border-top: 1px solid var(--border-subtle);
+            position: relative; /* For suggestions */
+        }
+
+        .input-wrapper {
+            max-width: 900px;
+            margin: 0 auto;
+            position: relative;
+            background-color: var(--bg-message-user);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            padding: 0.75rem;
+            display: flex;
+            gap: 0.5rem;
+            box-shadow: var(--shadow-lg);
+        }
+
+        textarea {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            resize: none;
+            height: 24px;
+            min-height: 24px;
+            max-height: 200px;
+            font-family: var(--font-main);
+            font-size: 1rem;
+            padding: 0;
+        }
+
+        .send-btn {
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            align-self: flex-end;
+            transition: transform 0.1s;
+        }
+        .send-btn:active { transform: scale(0.95); }
+        
+        /* Slash Commands Suggestions */
+        #command-suggestions {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 900px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-lg);
+            margin-bottom: 0.5rem;
+            overflow: hidden;
+            display: none;
+            z-index: 100;
+        }
+        
+        .suggestion-item {
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-subtle);
+            transition: background 0.1s;
+        }
+        .suggestion-item:last-child { border-bottom: none; }
+        .suggestion-item:hover, .suggestion-item.active { background: rgba(99, 102, 241, 0.1); }
+        .suggestion-cmd { font-family: var(--font-mono); color: var(--accent-primary); font-weight: 700; }
+        .suggestion-desc { color: var(--text-secondary); font-size: 0.9rem; }
+
+        /* Loading Overlay */
+        #loader {
+            position: fixed; inset: 0; background: var(--bg-app);
+            z-index: 9999; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        /* Modals */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+            z-index: 100; display: none; justify-content: center; align-items: center;
+            backdrop-filter: blur(8px);
+            padding: 1rem;
+        }
+        .modal-overlay.open { display: flex; }
+        
+        .modal-box {
+            background: var(--bg-panel);
+            width: 100%; max-width: 650px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            box-shadow: var(--shadow-lg);
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: fadeIn 0.2s ease;
+        }
+        
+        .modal-header {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            background: rgba(255,255,255,0.02);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        
+        .modal-tabs {
+            display: flex;
+            background: var(--bg-input);
+            padding: 0.25rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            gap: 1.5rem;
+        }
+        
+        .modal-tab {
+            padding: 0.75rem 0;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .modal-tab:hover { color: var(--text-primary); }
+        .modal-tab.active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
+        
+        .modal-body { overflow-y: auto; padding: 1.5rem; }
+        .modal-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border-subtle);
+            display: flex; justify-content: flex-end; gap: 1rem;
+            background: var(--bg-panel);
+        }
+
+        .form-group { margin-bottom: 1.25rem; }
+        .form-label { display: block; margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; }
+        .form-input { 
+            width: 100%; background: var(--bg-input); border: 1px solid var(--border-subtle);
+            color: white; padding: 0.75rem; border-radius: var(--radius-sm);
+            font-family: var(--font-main); transition: border-color 0.2s;
+        }
+        .form-input:focus { border-color: var(--accent-primary); }
+        
+        /* Specialized UI Components */
+        .toggle-switch {
+            position: relative; display: inline-block; width: 44px; height: 24px;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--bg-input); border: 1px solid var(--border-subtle);
+            transition: .4s; border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 18px; width: 18px; left: 2px; bottom: 2px;
+            background-color: var(--text-secondary); transition: .4s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--accent-primary); border-color: var(--accent-primary); }
+        input:checked + .slider:before { transform: translateX(20px); background-color: white; }
+
+        /* Co-star Grid */
+        .costar-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem;
+        }
+        .costar-card {
+            background: var(--bg-input); border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm); padding: 0.75rem; cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+            transition: all 0.2s; position: relative;
+        }
+        .costar-card:hover { border-color: var(--text-secondary); }
+        .costar-card.selected { 
+            border-color: var(--accent-primary); 
+            background: rgba(99, 102, 241, 0.1);
+        }
+        .costar-card.selected::after {
+            content: "✓"; position: absolute; top: 4px; right: 4px;
+            background: var(--accent-primary); color: white; border-radius: 50%;
+            width: 18px; height: 18px; font-size: 12px; display: flex; align-items: center; justify-content: center;
+        }
+        
+        /* Tags/Chips */
+        .chip-container { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .chip {
+            padding: 0.4rem 0.8rem; background: var(--bg-input); border: 1px solid var(--border-subtle);
+            border-radius: 20px; font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;
+            transition: all 0.2s;
+        }
+        .chip:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+        .chip.selected { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
+
+        /* Avatar Preview */
+        .avatar-preview-container { display: flex; gap: 1rem; align-items: center; }
+        .avatar-preview { 
+            width: 70px; height: 70px; border-radius: 50%; background: #333; 
+            border: 2px solid var(--border-subtle); background-size: cover; background-position: center;
+            flex-shrink: 0;
+        }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            #sidebar {
+                position: fixed; top: 0; bottom: 0; left: 0;
+                transform: translateX(-100%);
+            }
+            #sidebar.open { transform: translateX(0); }
+            .mobile-menu-btn { display: block; }
+            .modal-box { height: 100%; max-height: 100%; border-radius: 0; width: 100%; }
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- Initial Loader -->
+    <div id="loader">
+        <div class="spinner"></div>
+        <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-secondary);">Initializing Neural Engine...</p>
+    </div>
+
+    <!-- Modal: Settings (NEW) -->
+    <div id="modal-settings" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2 style="margin:0; font-size: 1.25rem;">App Settings</h2>
+                <button onclick="App.ui.closeModal('settings')" class="btn-icon" style="border:none; width:auto; height:auto;">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <h3 class="text-sm text-secondary" style="margin-top:0;">Appearance</h3>
+                <div class="form-group">
+                    <label class="form-label">Accent Color</label>
+                    <input type="color" id="settings-accent" class="form-input" style="height:50px;" value="#6366f1" oninput="App.ui.setAccentColor(this.value)">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Font Size</label>
+                    <input type="range" class="w-full" min="12" max="24" value="16" oninput="App.ui.updateCSSVar('--app-font-size', this.value + 'px')">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Background Image (URL)</label>
+                    <input type="text" id="settings-bg" class="form-input" placeholder="e.g. https://..." onchange="App.ui.updateBackground(this.value)">
+                </div>
+                
+                <h3 class="text-sm text-secondary" style="margin-top:2rem;">LLM Connection</h3>
+                <div class="form-group">
+                    <label class="form-label">API Endpoint</label>
+                    <input type="text" id="settings-api-url" class="form-input" placeholder="e.g. https://api.openai.com/v1/chat/completions">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input type="password" id="settings-api-key" class="form-input" placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Model Name</label>
+                    <input type="text" id="settings-api-model" class="form-input" placeholder="gpt-4o-mini">
+                </div>
+
+                <h3 class="text-sm text-secondary" style="margin-top:2rem;">Behavior</h3>
+                <div class="form-group">
+                    <label class="form-label">Response Verbosity</label>
+                    <select id="settings-verbosity" class="form-input">
+                        <option value="concise">Concise</option>
+                        <option value="normal" selected>Normal</option>
+                        <option value="verbose">Verbose</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <div class="flex justify-between items-center">
+                        <label class="form-label" style="margin:0">Stream Typing Effect</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="settings-stream" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button onclick="App.ui.closeModal('settings')" class="btn-primary">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Character Creation -->
+    <div id="modal-character" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2 style="margin:0; font-size: 1.25rem;">Character Studio</h2>
+                <button onclick="App.ui.closeModal('character')" class="btn-icon" style="border:none; width:auto; height:auto;">&times;</button>
+            </div>
+            
+            <div class="modal-tabs">
+                <div class="modal-tab active" onclick="App.ui.switchTab('character', 'identity')">Identity</div>
+                <div class="modal-tab" onclick="App.ui.switchTab('character', 'persona')">Persona</div>
+                <div class="modal-tab" onclick="App.ui.switchTab('character', 'advanced')">Advanced</div>
+            </div>
+
+            <div class="modal-body" id="char-tab-identity">
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <input type="text" id="char-name" class="form-input" placeholder="e.g. Seraphina">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Tagline (Short Description)</label>
+                    <input type="text" id="char-tagline" class="form-input" placeholder="e.g. A rogue AI searching for purpose...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Avatar</label>
+                    <div class="avatar-preview-container">
+                        <div id="char-avatar-preview" class="avatar-preview"></div>
+                        <div class="flex-col grow gap-2">
+                            <input type="text" id="char-avatar-url" class="form-input" placeholder="https://example.com/image.png" oninput="App.ui.updateAvatarPreview(this.value)">
+                            <div class="text-xs text-secondary">Paste a URL or leave blank for auto-generated avatar.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-body hidden" id="char-tab-persona">
+                <div class="form-group">
+                    <label class="form-label">System Prompt / Core Personality</label>
+                    <textarea id="char-prompt" class="form-input" rows="8" placeholder="Define personality traits, speaking style, rules, and behavior..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Opening Message (Optional)</label>
+                    <textarea id="char-first-mes" class="form-input" rows="3" placeholder="The first thing they say..."></textarea>
+                </div>
+            </div>
+
+            <div class="modal-body hidden" id="char-tab-advanced">
+                <div class="form-group">
+                    <div class="flex justify-between items-center">
+                        <label class="form-label" style="margin:0">Dynamic Memory (Vector DB)</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" checked disabled>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <p class="text-xs text-secondary" style="margin-top:0.5rem">Always enabled in production build.</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Creativity (Temperature)</label>
+                    <input type="range" class="w-full" min="0" max="100" value="70">
+                    <div class="flex justify-between text-xs text-secondary">
+                        <span>Precise</span>
+                        <span>Creative</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button onclick="App.ui.closeModal('character')" class="btn-secondary">Cancel</button>
+                <button onclick="App.createCharacterFromModal()" class="btn-primary">Create Character</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Scenario & Adventure -->
+    <div id="modal-scenario" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2 style="margin:0; font-size: 1.25rem;">Scenario Engine</h2>
+                <div class="flex items-center gap-2">
+                    <span class="text-sm text-secondary">Adventure Mode</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="scenario-adventure-mode">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="modal-tabs">
+                <div class="modal-tab active" onclick="App.ui.switchTab('scenario', 'world')">World</div>
+                <div class="modal-tab" onclick="App.ui.switchTab('scenario', 'cast')">Cast</div>
+                <div class="modal-tab" onclick="App.ui.switchTab('scenario', 'style')">Style</div>
+            </div>
+            
+            <div class="modal-body" id="scen-tab-world">
+                <div class="form-group">
+                    <label class="form-label flex justify-between">
+                        Current Situation / Context
+                        <button onclick="App.generateScenarioFromChat()" class="btn-primary" style="padding: 2px 8px; font-size: 0.7rem; width: auto; height: 24px;">✨ Auto-Generate</button>
+                    </label>
+                    <textarea id="scenario-context" class="form-input" rows="5" placeholder="Where are we? What is happening? e.g. 'Inside a derelict space station, alarm klaxons blaring...'"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Location Name</label>
+                    <input type="text" id="scenario-location" class="form-input" placeholder="e.g. Sector 7 Slums">
+                </div>
+            </div>
+
+            <div class="modal-body hidden" id="scen-tab-cast">
+                <div class="form-group">
+                    <label class="form-label">Adventure "Together" (Co-Stars)</label>
+                    <p class="text-xs text-secondary" style="margin-bottom:1rem;">Select other characters to seamlessly include in the narrative context.</p>
+                    <div id="scenario-costars-list" class="costar-grid">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-body hidden" id="scen-tab-style">
+                <div class="form-group">
+                    <label class="form-label">Narrative Tone</label>
+                    <div class="chip-container" id="tone-selector">
+                        <div class="chip" onclick="App.ui.selectChip(this, 'tone')">Neutral</div>
+                        <div class="chip" onclick="App.ui.selectChip(this, 'tone')">Dark</div>
+                        <div class="chip" onclick="App.ui.selectChip(this, 'tone')">Humorous</div>
+                        <div class="chip" onclick="App.ui.selectChip(this, 'tone')">Romantic</div>
+                        <div class="chip" onclick="App.ui.selectChip(this, 'tone')">Action</div>
+                        <div class="chip" onclick="App.ui.selectChip(this, 'tone')">Mystery</div>
+                    </div>
+                    <input type="hidden" id="scenario-tone" value="Neutral">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Game Master Style (Adventure Mode)</label>
+                    <select id="scenario-gm-style" class="form-input">
+                        <option value="descriptive">Descriptive & Ambient</option>
+                        <option value="direct">Direct & Action-Oriented</option>
+                        <option value="reactive">Reactive (Player Led)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button onclick="App.ui.closeModal('scenario')" class="btn-secondary">Cancel</button>
+                <button onclick="App.saveScenarioSettings()" class="btn-primary">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div id="app-layout">
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <span>Chats</span>
+                <button class="mobile-menu-btn" onclick="App.ui.toggleSidebar()" style="font-size:1.2rem;">&times;</button>
+                <button class="btn-icon" onclick="App.ui.openModal('settings')" style="border:none;" title="Global Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+            </div>
+            <div style="padding: 1rem;">
+                <button onclick="App.ui.openModal('character')" class="btn-primary">+ New Character</button>
+            </div>
+            <div id="thread-list" class="thread-list scroll-y grow">
+                <!-- Threads injected here -->
+            </div>
+            <div style="padding: 1rem; border-top: 1px solid var(--border-subtle); font-size: 0.8rem; color: var(--text-secondary); text-align: center;">
+                <button onclick="App.db.exportData()" style="background:none; border:none; color:inherit; cursor:pointer; text-decoration:underline;">Export Data</button>
+            </div>
+        </aside>
+
+        <main id="main-stage">
+            <header>
+                <div class="flex items-center">
+                    <button class="mobile-menu-btn" onclick="App.ui.toggleSidebar()">&#9776;</button>
+                    <div class="flex flex-col">
+                        <span id="header-title" style="font-weight: 700;">Select a Chat</span>
+                        <span id="header-status" style="font-size: 0.8rem; color: var(--text-secondary); opacity: 0;">Online</span>
+                    </div>
+                </div>
+                <div>
+                    <button class="btn-icon" onclick="App.openScenarioModal()" title="Scenario & Settings">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v18a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M15 5h-6"/><path d="M3 8h18"/><path d="M3 17h18"/></svg>
+                    </button>
+                </div>
+            </header>
+
+            <div id="chat-feed" class="scroll-y">
+                <div style="text-align: center; color: var(--text-secondary); margin-top: 2rem;">
+                    Select a character from the left to begin.
+                </div>
+            </div>
+
+            <div id="input-area">
+                <!-- Slash Command Suggestions -->
+                <div id="command-suggestions" class="hidden">
+                    <!-- Injected by JS -->
+                </div>
+
+                <div class="input-wrapper">
+                    <textarea id="msg-input" placeholder="Type a message... (Tip: use /clear, /image, /note)" rows="1" oninput="App.ui.handleInput(event)" onkeydown="App.ui.handleInputKey(event)"></textarea>
+                    <button class="send-btn" onclick="App.sendMessage()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Hidden sandboxes for custom code -->
+    <div id="sandbox-container" style="display:none;"></div>
+
+    <script type="module">
+        /**
+         * PRODUCTION GRADE IMPLEMENTER - Single File Architecture
+         * Includes Scenario Engine & Group Adventure Logic
+         */
+
+        /* --- 1. UTILS --- */
+        const Utils = {
+            uuid: () => crypto.randomUUID(),
+            now: () => Date.now(),
+            delay: (ms) => new Promise(r => setTimeout(r, ms)),
+            
+            // Mathematical correctness for vector math
+            dotProduct: (vecA, vecB) => {
+                let product = 0;
+                for (let i = 0; i < vecA.length; i++) product += vecA[i] * vecB[i];
+                return product;
+            },
+            magnitude: (vec) => {
+                let sum = 0;
+                for (let i = 0; i < vec.length; i++) sum += vec[i] * vec[i];
+                return Math.sqrt(sum);
+            },
+            cosineSimilarity: (vecA, vecB) => {
+                return Utils.dotProduct(vecA, vecB) / (Utils.magnitude(vecA) * Utils.magnitude(vecB));
+            },
+            
+            sha256: async (text) => {
+                const msgBuffer = new TextEncoder().encode(text);
+                const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            },
+
+            escapeHtml: (unsafe) => {
+                return unsafe
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+        };
+
+        const SLASH_COMMANDS = [
+            { cmd: "/clear", desc: "Clear chat history" },
+            { cmd: "/image", desc: "Generate an image description" },
+            { cmd: "/mem", desc: "Inject a memory manually" },
+            { cmd: "/note", desc: "Add a system note/context" },
+            { cmd: "/log", desc: "Download chat transcript (.txt)" }, 
+            { cmd: "/export", desc: "Export current chat (.json)" },
+            { cmd: "/reset", desc: "Reset thread settings" }
+        ];
+
+        /* --- 2. STORAGE (Dexie Polyfill/Loader) --- */
+        class Database {
+            constructor() {
+                this.db = null;
+                this.dbName = "ChatbotDB_Prod_v1";
+                this.settings = {
+                    accentColor: "#6366f1",
+                    fontSize: "16px",
+                    background: "",
+                    verbosity: "normal",
+                    streamTyping: true,
+                    apiEndpoint: "",
+                    apiKey: "",
+                    apiModel: ""
+                };
+            }
+
+            async init() {
+                if (typeof Dexie === 'undefined') {
+                    await import('https://unpkg.com/dexie@3.2.4/dist/dexie.js');
+                }
+                
+                this.db = new Dexie(this.dbName);
+                this.db.version(1).stores({
+                    characters: '++id, name, lastMessageTime',
+                    threads: '++id, characterId, lastMessageTime',
+                    messages: '++id, threadId, timestamp',
+                    memories: '++id, characterId, embedding',
+                    settings: 'key' 
+                });
+                
+                await this.db.open();
+                await this.seedDefaults();
+                await this.loadSettings();
+                console.log("Database initialized");
+            }
+
+            async seedDefaults() {
+                const count = await this.db.characters.count();
+                if (count === 0) {
+                    const starter = {
+                        name: "Atlas",
+                        tagline: "A helpful logic engine.",
+                        prompt: "You are Atlas, a sophisticated AI assistant designed to help with coding, logic, and creativity. You are polite but direct.",
+                        avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Atlas",
+                        lastMessageTime: Utils.now()
+                    };
+                    const charId = await this.db.characters.add(starter);
+                    await this.db.threads.add({ 
+                        characterId: charId, 
+                        lastMessageTime: Utils.now(),
+                        scenarioConfig: { context: "", adventureMode: false, costars: [], location: "", tone: "Neutral", gmStyle: "descriptive" }
+                    });
+                    
+                    await this.db.memories.add({
+                         characterId: charId,
+                         text: "Atlas prefers efficient solutions.",
+                         embedding: new Array(384).fill(0.1) 
+                    });
+                }
+            }
+
+            async loadSettings() {
+                const rows = await this.db.settings.toArray();
+                rows.forEach(r => this.settings[r.key] = r.value);
+            }
+
+            async updateSetting(key, value) {
+                this.settings[key] = value;
+                await this.db.settings.put({ key, value });
+            }
+
+            async getThreadsWithChar() {
+                const threads = await this.db.threads.toArray();
+                const chars = await this.db.characters.toArray();
+                const charMap = new Map(chars.map(c => [c.id, c]));
+                
+                return threads.map(t => ({
+                    ...t,
+                    character: charMap.get(t.characterId)
+                })).sort((a, b) => b.lastMessageTime - a.lastMessageTime);
+            }
+
+            async getMessages(threadId) {
+                return await this.db.messages.where('threadId').equals(threadId).sortBy('timestamp');
+            }
+
+            async addMessage(msgObj) {
+                const id = await this.db.messages.add(msgObj);
+                await this.db.threads.update(msgObj.threadId, { lastMessageTime: Utils.now() });
+                return id;
+            }
+            
+            async clearMessages(threadId) {
+                 await this.db.messages.where('threadId').equals(threadId).delete();
+            }
+
+            async updateThreadScenario(threadId, config) {
+                return await this.db.threads.update(threadId, { scenarioConfig: config });
+            }
+
+            async getAllCharacters() {
+                return await this.db.characters.toArray();
+            }
+
+            async exportData() {
+                const blob = await this.db.export();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `chat-export-${new Date().toISOString()}.json`;
+                a.click();
+            }
+        }
+
+        /* --- 3. VECTOR ENGINE (Feature Hashing) --- */
+        class VectorEngine {
+            constructor() {
+                this.dimension = 384; 
+            }
+
+            async embed(text) {
+                const vec = new Array(this.dimension).fill(0);
+                const cleanText = text.toLowerCase().replace(/[^\w\s]/g, '');
+                
+                // Trigram hashing
+                for (let i = 0; i < cleanText.length - 2; i++) {
+                    const trigram = cleanText.substring(i, i + 3);
+                    let hash = 0;
+                    for (let j = 0; j < trigram.length; j++) {
+                        hash = ((hash << 5) - hash) + trigram.charCodeAt(j);
+                        hash |= 0;
+                    }
+                    const index = Math.abs(hash) % this.dimension;
+                    vec[index] += 1;
+                }
+                
+                // Normalization
+                const mag = Utils.magnitude(vec);
+                return vec.map(v => v / (mag || 1));
+            }
+
+            async findRelevantMemories(queryText, memories) {
+                const queryVec = await this.embed(queryText);
+                const scored = memories.map(mem => ({
+                    ...mem,
+                    score: Utils.cosineSimilarity(queryVec, mem.embedding)
+                }));
+                // Filter and sort by score
+                return scored
+                    .filter(m => m.score > 0.05) 
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 3);
+            }
+        }
+
+        /* --- 4. AI ADAPTER (Logic Engine) --- */
+        class AIAdapter {
+            constructor() {
+                // Initialize Markdown + Syntax Highlighting
+                Promise.all([
+                    import('https://cdn.jsdelivr.net/npm/marked/lib/marked.umd.js'),
+                    import('https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/es/highlight.min.js')
+                ]).then(([_, hljsModule]) => {
+                     const hljs = hljsModule.default;
+                     window.marked.setOptions({
+                        highlight: function(code, lang) {
+                            const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+                            return hljs.highlight(code, { language }).value;
+                        },
+                        langPrefix: 'hljs language-'
+                    });
+                    this.markdownReady = true;
+                });
+            }
+
+            generateHeuristicResponse(userText, context, verbosity) {
+                const lowerInput = userText.toLowerCase();
+                let response = "";
+
+                const isQuestion = lowerInput.includes("?") || lowerInput.startsWith("what") || lowerInput.startsWith("how");
+                const isGreeting = /\b(hi|hello|hey|yo)\b/.test(lowerInput);
+                const isAction = userText.startsWith("*");
+
+                if (context.memories && context.memories.length > 0) {
+                    response += `(Recalling: "${context.memories[0].text}")\n\n`;
+                }
+
+                if (context.adventureMode) {
+                    response += `**[Game Master]**\n\nThe environment at **${context.location || 'Unknown'}** shifts. `;
+                    if (isAction) response += `Your action causes a ripple effect. `;
+                    else response += `You stand ready. `;
+                } else if (context.costars && context.costars.length > 0) {
+                    const costar = context.costars[0];
+                    response += `*${costar.name} looks at you.* "I think we should consider that carefully." `;
+                } else {
+                    if (isGreeting) response += "Greetings. Systems online. ";
+                    else if (isQuestion) response += "Analysis suggests multiple outcomes. Let's explore the variables. ";
+                    else response += "I've logged that input. Proceeding with analysis. ";
+                }
+
+                if (verbosity === "verbose") {
+                    response += "\n\nExpanding on this, the underlying data suggests a correlation with previous inputs. We should remain vigilant regarding system parameters.";
+                }
+
+                return response;
+            }
+
+            async *streamResponse(userText, contextData, settings) {
+                const { adventureMode, costars, scenarioContext, location, tone, memories, systemPrompt } = contextData;
+                const verbosity = settings.verbosity || "normal";
+                const streamTyping = settings.streamTyping !== false; 
+                
+                // 1. API Call (Prioritized)
+                if (settings.apiEndpoint && settings.apiKey) {
+                    try {
+                        const stream = await this.callLLM(userText, contextData, settings);
+                        yield* stream;
+                        return;
+                    } catch (e) {
+                        console.warn("API Call failed, falling back to logic engine.", e);
+                        yield " [API Connection Error: Switching to Internal Logic] ";
+                    }
+                }
+
+                // 2. Heuristic Engine (Fallback)
+                let responseText = this.generateHeuristicResponse(userText, contextData, verbosity);
+                let thinkingTime = 400 + Math.random() * 800;
+                await Utils.delay(thinkingTime);
+
+                if (!streamTyping) {
+                     yield responseText;
+                } else {
+                    const chars = responseText.split('');
+                    for (const char of chars) {
+                        await Utils.delay(8 + Math.random() * 15); 
+                        yield char;
+                    }
+                }
+            }
+
+            async *callLLM(userText, context, settings) {
+                let sysMsg = `${context.systemPrompt || "You are a helpful AI assistant."}`;
+                if (context.scenarioContext) sysMsg += `\nContext: ${context.scenarioContext}`;
+                if (context.location) sysMsg += `\nLocation: ${context.location}`;
+                if (context.memories?.length) sysMsg += `\nMemories:\n${context.memories.map(m => "- " + m.text).join("\n")}`;
+
+                const response = await fetch(settings.apiEndpoint, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${settings.apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: settings.apiModel || "gpt-3.5-turbo",
+                        messages: [
+                            { role: "system", content: sysMsg },
+                            { role: "user", content: userText }
+                        ],
+                        stream: true
+                    })
+                });
+
+                if (!response.ok) throw new Error(`API Status: ${response.status}`);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop(); 
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed || trimmed === "data: [DONE]") continue;
+                        if (trimmed.startsWith("data: ")) {
+                            try {
+                                const json = JSON.parse(trimmed.substring(6));
+                                const content = json.choices?.[0]?.delta?.content;
+                                if (content) yield content;
+                            } catch (e) {
+                                console.error("Error parsing stream chunk", e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            async generateSummary(chatHistory) {
+                await Utils.delay(1500);
+                return `Summary: User interactions detected (${chatHistory.length} messages). Context established.`;
+            }
+        }
+
+        /* --- 5. UI CONTROLLER --- */
+        class UIController {
+            constructor() {
+                this.activeThreadId = null;
+                this.dom = {}; 
+                // Note: DOM references are initialized in init() to ensure elements exist
+            }
+            
+            init() {
+                this.dom = {
+                    threadList: document.getElementById('thread-list'),
+                    chatFeed: document.getElementById('chat-feed'),
+                    headerTitle: document.getElementById('header-title'),
+                    input: document.getElementById('msg-input'),
+                    sidebar: document.getElementById('sidebar'),
+                    loader: document.getElementById('loader'),
+                    suggestions: document.getElementById('command-suggestions'),
+                    // Scenario Modal
+                    scenarioAdventureToggle: document.getElementById('scenario-adventure-mode'),
+                    scenarioContext: document.getElementById('scenario-context'),
+                    scenarioLocation: document.getElementById('scenario-location'),
+                    scenarioCostarsList: document.getElementById('scenario-costars-list'),
+                    scenarioGmStyle: document.getElementById('scenario-gm-style')
+                };
+            }
+
+            hideLoader() {
+                if(this.dom.loader) {
+                    this.dom.loader.style.opacity = '0';
+                    setTimeout(() => this.dom.loader.remove(), 500);
+                }
+            }
+            
+            // Settings Updaters
+            updateCSSVar(varName, value) {
+                document.documentElement.style.setProperty(varName, value);
+            }
+            
+            setAccentColor(color) {
+                this.updateCSSVar('--accent-primary', color);
+                this.updateCSSVar('--accent-hover', color); 
+            }
+            
+            updateBackground(url) {
+                const stage = document.getElementById('main-stage');
+                if (url && url.trim() !== "") {
+                    stage.style.backgroundImage = `url('${url}')`;
+                    stage.style.boxShadow = "inset 0 0 0 2000px rgba(15, 17, 21, 0.7)";
+                } else {
+                    stage.style.backgroundImage = '';
+                    stage.style.boxShadow = '';
+                }
+            }
+
+            renderThreads(threads, activeId) {
+                if(!this.dom.threadList) return;
+                this.dom.threadList.innerHTML = threads.map(t => `
+                    <div class="thread-card ${t.id === activeId ? 'active' : ''}" onclick="App.loadThread(${t.id})">
+                        <div class="avatar-sm" style="background-image: url('${t.character.avatar}')"></div>
+                        <div class="thread-info">
+                            <div class="thread-name">${t.character.name}</div>
+                            <div class="thread-preview">${t.scenarioConfig?.adventureMode ? '⚔️ Adventure' : t.character.tagline}</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            // Slash Command Logic
+            showSuggestions(filterText) {
+                if(!this.dom.suggestions) return;
+                const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(filterText));
+                if (matches.length === 0) {
+                    this.dom.suggestions.style.display = 'none';
+                    return;
+                }
+                
+                this.dom.suggestions.innerHTML = matches.map(c => `
+                    <div class="suggestion-item" onclick="App.applyCommand('${c.cmd} ')">
+                        <span class="suggestion-cmd">${c.cmd}</span>
+                        <span class="suggestion-desc">${c.desc}</span>
+                    </div>
+                `).join('');
+                
+                this.dom.suggestions.style.display = 'block';
+            }
+            
+            hideSuggestions() {
+                if(this.dom.suggestions) this.dom.suggestions.style.display = 'none';
+            }
+
+            renderCostarSelection(allChars, activeThreadCharId, currentCostarIds) {
+                const container = this.dom.scenarioCostarsList;
+                const candidates = allChars.filter(c => c.id !== activeThreadCharId);
+                
+                if (candidates.length === 0) {
+                    container.innerHTML = `<div style="grid-column: 1/-1; color:var(--text-secondary); font-size:0.9rem; padding:1rem; text-align:center; border: 1px dashed var(--border-subtle); border-radius: var(--radius-sm);">No other characters available. Create more to enable group chat!</div>`;
+                    return;
+                }
+
+                container.innerHTML = candidates.map(c => `
+                    <div class="costar-card ${currentCostarIds.includes(c.id) ? 'selected' : ''}" 
+                         onclick="this.classList.toggle('selected'); App.ui.toggleCostarCheckbox(this)">
+                        <input type="checkbox" value="${c.id}" class="hidden" ${currentCostarIds.includes(c.id) ? 'checked' : ''}>
+                        <div class="avatar-sm" style="background-image: url('${c.avatar}'); width:48px; height:48px; margin-bottom:0.5rem; border:none;"></div>
+                        <span style="font-size:0.85rem; font-weight:600; line-height:1.2;">${c.name}</span>
+                    </div>
+                `).join('');
+            }
+
+            selectChip(el, inputId) {
+                const container = el.parentElement;
+                container.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+                el.classList.add('selected');
+                document.getElementById('scenario-' + inputId).value = el.innerText;
+            }
+
+            toggleCostarCheckbox(el) {
+                const cb = el.querySelector('input');
+                cb.checked = !cb.checked;
+            }
+
+            switchTab(modalType, tabName) {
+                const prefix = modalType === 'character' ? 'char' : 'scen';
+                const modal = document.getElementById(`modal-${modalType}`);
+                modal.querySelectorAll('.modal-tab').forEach(t => {
+                    t.classList.remove('active');
+                    if (t.innerText.toLowerCase() === tabName) t.classList.add('active');
+                });
+                modal.querySelectorAll('.modal-body').forEach(b => b.classList.add('hidden'));
+                document.getElementById(`${prefix}-tab-${tabName}`).classList.remove('hidden');
+            }
+
+            updateAvatarPreview(url) {
+                const preview = document.getElementById('char-avatar-preview');
+                if (url && url.trim() !== '') {
+                    preview.style.backgroundImage = `url('${url}')`;
+                } else {
+                    preview.style.backgroundImage = '';
+                    preview.style.backgroundColor = '#333';
+                }
+            }
+
+            clearChat() {
+                if(this.dom.chatFeed) this.dom.chatFeed.innerHTML = '';
+            }
+
+            appendMessage(role, content, metadata = {}) {
+                if(!this.dom.chatFeed) return;
+                const div = document.createElement('div');
+                div.className = `message-row ${role}`;
+                const htmlContent = window.marked ? window.marked.parse(content) : Utils.escapeHtml(content);
+                
+                const processedContent = htmlContent.replace(/&lt;image&gt;(.*?)&lt;\/image&gt;|<image>(.*?)<\/image>/g, (match, p1, p2) => {
+                    const prompt = p1 || p2;
+                    const seed = prompt.length; 
+                    return `<div style="margin: 10px 0; border-radius: 8px; overflow: hidden;">
+                        <img src="https://picsum.photos/seed/${seed}/400/300" alt="${prompt}" style="max-width:100%; height:auto; display:block;">
+                        <div style="font-size:0.8rem; color:#aaa; padding:4px;">Generated: ${prompt}</div>
+                    </div>`;
+                });
+
+                // Memory Inspector Rendering
+                let memoryHtml = '';
+                if (metadata && metadata.memories && metadata.memories.length > 0) {
+                     const memList = metadata.memories.map(m => `<li>${m.text} (${Math.round(m.score*100)}%)</li>`).join('');
+                     memoryHtml = `
+                        <div style="position:relative; display:inline-block;">
+                            <div class="memory-pill">🧠 Brain</div>
+                            <div class="memory-popover">
+                                <strong>Retrieved Context:</strong>
+                                <ul style="padding-left:1.2rem; margin:0.5rem 0;">${memList}</ul>
+                            </div>
+                        </div>
+                     `;
+                }
+
+                div.innerHTML = `
+                    <div class="message-bubble prose">
+                        <div class="message-sender flex justify-between">
+                            <span>${role === 'user' ? 'You' : 'AI'}</span>
+                        </div>
+                        ${processedContent}
+                        ${memoryHtml}
+                    </div>
+                `;
+                
+                this.dom.chatFeed.appendChild(div);
+                this.scrollToBottom();
+                return div.querySelector('.message-bubble'); 
+            }
+
+            scrollToBottom() {
+                if(this.dom.chatFeed) this.dom.chatFeed.scrollTop = this.dom.chatFeed.scrollHeight;
+            }
+
+            autoResize(textarea) {
+                if(!textarea) return;
+                textarea.style.height = '24px';
+                textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+            }
+
+            toggleSidebar() {
+                if(this.dom.sidebar) this.dom.sidebar.classList.toggle('open');
+            }
+
+            openModal(id) {
+                const el = document.getElementById('modal-' + id);
+                if(el) el.classList.add('open');
+            }
+
+            closeModal(id) {
+                const el = document.getElementById('modal-' + id);
+                if(el) el.classList.remove('open');
+                
+                // Special save for settings modal close
+                if (id === 'settings') App.saveGlobalSettings();
+            }
+            
+            // Interaction Handlers (Now called from HTML via App.ui.handleInput)
+            handleInput(e) {
+                this.autoResize(e.target);
+                const val = e.target.value;
+                if (val.startsWith("/")) {
+                    this.showSuggestions(val);
+                } else {
+                    this.hideSuggestions();
+                }
+            }
+            
+            handleInputKey(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.hideSuggestions();
+                    App.sendMessage();
+                }
+                if (e.key === 'Escape') {
+                    this.hideSuggestions();
+                }
+            }
+        }
+
+        /* --- 6. MAIN APP LOGIC --- */
+        class AppClass {
+            constructor() {
+                this.db = new Database();
+                this.vectors = new VectorEngine();
+                this.ai = new AIAdapter();
+                this.ui = new UIController();
+                this.activeThread = null;
+            }
+
+            async init() {
+                try {
+                    this.ui.init(); // Initialize DOM references safely
+                    await this.db.init();
+                    await this.refreshThreads();
+                    this.applyStoredSettings();
+                    this.ui.hideLoader();
+                } catch (e) {
+                    console.error("Init failed", e);
+                    alert("Initialization failed. Please use a modern browser.");
+                }
+            }
+
+            applyStoredSettings() {
+                const s = this.db.settings;
+                if(s.accentColor) {
+                    this.ui.setAccentColor(s.accentColor);
+                    const el = document.getElementById('settings-accent');
+                    if(el) el.value = s.accentColor;
+                }
+                if(s.fontSize) {
+                    this.ui.updateCSSVar('--app-font-size', s.fontSize);
+                    const el = document.querySelector('#modal-settings input[type="range"]');
+                    if(el) el.value = parseInt(s.fontSize);
+                }
+                if(s.background) {
+                    this.ui.updateBackground(s.background);
+                    const el = document.getElementById('settings-bg');
+                    if(el) el.value = s.background;
+                }
+                if(s.verbosity) {
+                    const el = document.getElementById('settings-verbosity');
+                    if(el) el.value = s.verbosity;
+                }
+                if(s.streamTyping !== undefined) {
+                    const el = document.getElementById('settings-stream');
+                    if(el) el.checked = s.streamTyping;
+                }
+                if(s.apiEndpoint) {
+                    const el = document.getElementById('settings-api-url');
+                    if(el) el.value = s.apiEndpoint;
+                }
+                if(s.apiKey) {
+                    const el = document.getElementById('settings-api-key');
+                    if(el) el.value = s.apiKey;
+                }
+                if(s.apiModel) {
+                    const el = document.getElementById('settings-api-model');
+                    if(el) el.value = s.apiModel;
+                }
+            }
+
+            async saveGlobalSettings() {
+                const accent = document.getElementById('settings-accent').value;
+                const fontSize = document.querySelector('#modal-settings input[type="range"]').value + 'px';
+                const bg = document.getElementById('settings-bg').value;
+                const verbosity = document.getElementById('settings-verbosity').value;
+                const streamTyping = document.getElementById('settings-stream').checked;
+                const apiEndpoint = document.getElementById('settings-api-url').value;
+                const apiKey = document.getElementById('settings-api-key').value;
+                const apiModel = document.getElementById('settings-api-model').value;
+                
+                await this.db.updateSetting('accentColor', accent);
+                await this.db.updateSetting('fontSize', fontSize);
+                await this.db.updateSetting('background', bg);
+                await this.db.updateSetting('verbosity', verbosity);
+                await this.db.updateSetting('streamTyping', streamTyping);
+                await this.db.updateSetting('apiEndpoint', apiEndpoint);
+                await this.db.updateSetting('apiKey', apiKey);
+                await this.db.updateSetting('apiModel', apiModel);
+            }
+
+            async refreshThreads() {
+                const threads = await this.db.getThreadsWithChar();
+                this.ui.renderThreads(threads, this.activeThread?.id);
+            }
+
+            async loadThread(threadId) {
+                const threads = await this.db.getThreadsWithChar();
+                const thread = threads.find(t => t.id === threadId);
+                if (!thread) return;
+
+                this.activeThread = thread;
+                if (!this.activeThread.scenarioConfig) {
+                    this.activeThread.scenarioConfig = { context: "", adventureMode: false, costars: [], location: "", tone: "Neutral", gmStyle: "descriptive" };
+                }
+
+                this.ui.dom.headerTitle.innerText = thread.character.name;
+                this.ui.dom.sidebar.classList.remove('open');
+                
+                this.ui.renderThreads(threads, threadId);
+                this.ui.clearChat();
+
+                const messages = await this.db.getMessages(threadId);
+                messages.forEach(m => this.ui.appendMessage(m.role, m.content, m.metadata || {}));
+                
+                if (messages.length === 0) {
+                    const opening = thread.character.firstMes || `*${thread.character.name} connects.*\n\n${thread.character.tagline}`;
+                    this.ui.appendMessage('ai', opening);
+                }
+            }
+
+            async createCharacterFromModal() {
+                const name = document.getElementById('char-name').value;
+                const tagline = document.getElementById('char-tagline').value;
+                const prompt = document.getElementById('char-prompt').value;
+                const avatarUrl = document.getElementById('char-avatar-url').value;
+                const firstMes = document.getElementById('char-first-mes').value;
+
+                if (!name) return alert("Name is required");
+
+                const avatar = (avatarUrl && avatarUrl.trim() !== "") 
+                    ? avatarUrl 
+                    : `https://api.dicebear.com/7.x/initials/svg?seed=${name}`;
+
+                const charId = await this.db.db.characters.add({
+                    name, tagline, prompt, avatar, firstMes,
+                    lastMessageTime: Utils.now()
+                });
+
+                const threadId = await this.db.db.threads.add({
+                    characterId: charId,
+                    lastMessageTime: Utils.now(),
+                    scenarioConfig: { context: "", adventureMode: false, costars: [] }
+                });
+
+                this.ui.closeModal('character');
+                
+                // Clear inputs
+                ['char-name', 'char-tagline', 'char-prompt', 'char-avatar-url', 'char-first-mes'].forEach(id => document.getElementById(id).value = '');
+                this.ui.updateAvatarPreview('');
+                this.ui.switchTab('character', 'identity'); // Reset tab
+
+                await this.refreshThreads();
+                await this.loadThread(threadId);
+            }
+
+            async openScenarioModal() {
+                if (!this.activeThread) return alert("Select a chat first");
+                const config = this.activeThread.scenarioConfig || { context: "", adventureMode: false, costars: [], location: "", tone: "Neutral", gmStyle: "descriptive" };
+                
+                this.ui.dom.scenarioAdventureToggle.checked = config.adventureMode;
+                this.ui.dom.scenarioContext.value = config.context || "";
+                this.ui.dom.scenarioLocation.value = config.location || "";
+                this.ui.dom.scenarioGmStyle.value = config.gmStyle || "descriptive";
+
+                const tone = config.tone || "Neutral";
+                document.getElementById('scenario-tone').value = tone;
+                const chips = document.querySelectorAll('#tone-selector .chip');
+                chips.forEach(c => {
+                    c.classList.remove('selected');
+                    if (c.innerText === tone) c.classList.add('selected');
+                });
+
+                const allChars = await this.db.getAllCharacters();
+                this.ui.renderCostarSelection(allChars, this.activeThread.characterId, config.costars || []);
+                this.ui.switchTab('scenario', 'world'); 
+                this.ui.openModal('scenario');
+            }
+
+            async saveScenarioSettings() {
+                if (!this.activeThread) return;
+                
+                const inputs = this.ui.dom.scenarioCostarsList.querySelectorAll('input:checked');
+                const costarIds = Array.from(inputs).map(i => parseInt(i.value));
+                
+                const newConfig = {
+                    adventureMode: this.ui.dom.scenarioAdventureToggle.checked,
+                    context: this.ui.dom.scenarioContext.value,
+                    location: this.ui.dom.scenarioLocation.value,
+                    tone: document.getElementById('scenario-tone').value,
+                    gmStyle: this.ui.dom.scenarioGmStyle.value,
+                    costars: costarIds
+                };
+
+                this.activeThread.scenarioConfig = newConfig;
+                await this.db.updateThreadScenario(this.activeThread.id, newConfig);
+                this.ui.closeModal('scenario');
+                this.refreshThreads(); 
+            }
+
+            async generateScenarioFromChat() {
+                if (!this.activeThread) return;
+                const btn = document.querySelector("#scen-tab-world .btn-primary");
+                const originalText = btn.innerText;
+                btn.innerText = "Generating...";
+                btn.disabled = true;
+
+                const messages = await this.db.getMessages(this.activeThread.id);
+                const summary = await this.ai.generateSummary(messages);
+                
+                this.ui.dom.scenarioContext.value = summary;
+                
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+
+            applyCommand(cmd) {
+                const input = this.ui.dom.input;
+                input.value = cmd;
+                input.focus();
+                this.ui.hideSuggestions();
+            }
+
+            async processSlashCommand(text) {
+                const parts = text.split(" ");
+                const cmd = parts[0].toLowerCase();
+                const args = parts.slice(1).join(" ");
+                
+                if (cmd === "/clear") {
+                    if(confirm("Clear chat history?")) {
+                        await this.db.clearMessages(this.activeThread.id);
+                        this.ui.clearChat();
+                        this.ui.appendMessage('ai', `*Chat history cleared.*`);
+                    }
+                    return true;
+                }
+                
+                if (cmd === "/image") {
+                    this.ui.appendMessage('user', text);
+                    const responseContainer = this.ui.appendMessage('ai', 'Generating visual...');
+                    await Utils.delay(1000);
+                    responseContainer.innerHTML = `<image>${args || "A random scene"}</image>`;
+                    return true;
+                }
+                
+                if (cmd === "/note" || cmd === "/mem") {
+                    // Inject memory manually
+                    await this.db.db.memories.add({
+                        characterId: this.activeThread.characterId,
+                        text: args,
+                        embedding: await this.vectors.embed(args) // Mock vector
+                    });
+                    this.ui.appendMessage('user', text);
+                    this.ui.appendMessage('ai', `*Memory stored: "${args}"*`);
+                    return true;
+                }
+
+                if (cmd === "/log") {
+                    const messages = await this.db.getMessages(this.activeThread.id);
+                    const lines = messages.map(m => {
+                        const speaker = m.role === 'user' ? 'You' : this.activeThread.character.name;
+                        return `[${new Date(m.timestamp).toLocaleString()}] ${speaker}:\n${m.content}\n`;
+                    });
+                    const text = lines.join('\n' + '-'.repeat(20) + '\n');
+                    const blob = new Blob([text], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `chat-log-${this.activeThread.character.name}-${Utils.now()}.txt`;
+                    a.click();
+                    this.ui.appendMessage('ai', `*Chat log downloaded.*`);
+                    return true;
+                }
+
+                if (cmd === "/export") {
+                    const messages = await this.db.getMessages(this.activeThread.id);
+                    const exportData = {
+                        thread: this.activeThread,
+                        messages: messages
+                    };
+                    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `chat-export-${this.activeThread.character.name}-${Utils.now()}.json`;
+                    a.click();
+                    this.ui.appendMessage('ai', `*Chat data exported.*`);
+                    return true;
+                }
+                
+                return false; // Not a command
+            }
+
+            async sendMessage() {
+                if (!this.activeThread) return alert("Select a chat first");
+                const input = this.ui.dom.input;
+                const text = input.value.trim();
+                if (!text) return;
+
+                input.value = '';
+                this.ui.autoResize(input);
+                this.ui.hideSuggestions();
+
+                // Check Slash Commands
+                if (text.startsWith("/")) {
+                    const handled = await this.processSlashCommand(text);
+                    if(handled) return;
+                }
+
+                await this.db.addMessage({
+                    threadId: this.activeThread.id,
+                    role: 'user',
+                    content: text,
+                    timestamp: Utils.now()
+                });
+                
+                this.ui.appendMessage('user', text);
+
+                const responseContainer = this.ui.appendMessage('ai', '...');
+                let fullResponse = "";
+                
+                try {
+                    // Retrieval Augmented Generation (RAG)
+                    // Get relevant memories from Vector DB
+                    const allMemories = await this.db.db.memories.where('characterId').equals(this.activeThread.characterId).toArray();
+                    const relevantMemories = await this.vectors.findRelevantMemories(text, allMemories);
+
+                    // Context Data
+                    const config = this.activeThread.scenarioConfig;
+                    const allChars = await this.db.getAllCharacters();
+                    const costarData = config.costars.map(id => allChars.find(c => c.id === id)).filter(Boolean);
+
+                    const contextData = {
+                        systemPrompt: this.activeThread.character.prompt,
+                        scenarioContext: config.context,
+                        location: config.location,
+                        tone: config.tone,
+                        adventureMode: config.adventureMode,
+                        costars: costarData,
+                        memories: relevantMemories
+                    };
+
+                    const streamer = this.ai.streamResponse(text, contextData, this.db.settings);
+                    
+                    for await (const chunk of streamer) {
+                        if (fullResponse === "") responseContainer.innerHTML = ""; 
+                        fullResponse += chunk;
+                        if(!window.marked) responseContainer.innerText = fullResponse;
+                        else responseContainer.innerHTML = `<div class="message-sender">${config.adventureMode ? 'Game Master' : 'AI'}</div>` + window.marked.parse(fullResponse);
+                        this.ui.scrollToBottom();
+                    }
+                    
+                    // Re-render final message with Metadata (Inspector)
+                    responseContainer.parentElement.remove(); // Remove streaming placeholder
+                    this.ui.appendMessage('ai', fullResponse, { memories: relevantMemories });
+
+                    await this.db.addMessage({
+                        threadId: this.activeThread.id,
+                        role: 'ai',
+                        content: fullResponse,
+                        timestamp: Utils.now(),
+                        metadata: { memories: relevantMemories }
+                    });
+
+                    await this.refreshThreads(); 
+
+                } catch (e) {
+                    responseContainer.innerText = "Error: Connection interrupted.";
+                    console.error(e);
+                }
+            }
+        }
+
+        // Initialize App
+        window.App = new AppClass();
+        window.addEventListener('DOMContentLoaded', () => window.App.init());
+
+    </script>
+</body>
+</html>
