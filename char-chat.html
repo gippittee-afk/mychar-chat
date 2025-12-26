@@ -458,6 +458,17 @@
             align-items: center; justify-content: center;
             transition: opacity 0.5s;
         }
+        .init-error {
+            margin: 2rem;
+            padding: 1.5rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            background: rgba(24, 27, 33, 0.85);
+            color: var(--text-primary);
+            max-width: 640px;
+        }
+        .init-error h2 { margin: 0 0 0.5rem 0; font-size: 1.2rem; }
+        .init-error p { margin: 0.25rem 0; color: var(--text-secondary); }
         .spinner {
             width: 40px; height: 40px;
             border: 3px solid rgba(255,255,255,0.1);
@@ -969,11 +980,21 @@
             }
 
             async init() {
-                if (typeof Dexie === 'undefined') {
-                    await import('https://unpkg.com/dexie@3.2.4/dist/dexie.js');
+                let DexieConstructor = window.Dexie;
+                if (!DexieConstructor) {
+                    try {
+                        const dexieModule = await import('https://unpkg.com/dexie@3.2.4/dist/dexie.mjs');
+                        DexieConstructor = dexieModule?.default || dexieModule?.Dexie || window.Dexie;
+                    } catch (error) {
+                        console.error("Dexie module failed to load.", error);
+                    }
+                }
+
+                if (!DexieConstructor) {
+                    throw new Error("Dexie failed to initialize.");
                 }
                 
-                this.db = new Dexie(this.dbName);
+                this.db = new DexieConstructor(this.dbName);
                 this.db.version(1).stores({
                     characters: '++id, name, lastMessageTime',
                     threads: '++id, characterId, lastMessageTime',
@@ -1637,7 +1658,20 @@
                     this.ui.hideLoader();
                 } catch (e) {
                     console.error("Init failed", e);
-                    alert("Initialization failed. Please use a modern browser.");
+                    this.ui.hideLoader();
+                    const stage = document.getElementById('main-stage');
+                    if (stage) {
+                        const errorCard = document.createElement('div');
+                        errorCard.className = 'init-error';
+                        errorCard.innerHTML = `
+                            <h2>Initialization failed</h2>
+                            <p>We couldn't start the local database required for chat history.</p>
+                            <p>Please refresh the page and ensure the browser allows module imports and IndexedDB.</p>
+                        `;
+                        stage.appendChild(errorCard);
+                    } else {
+                        alert("Initialization failed. Please use a modern browser.");
+                    }
                 }
             }
 
