@@ -56,6 +56,7 @@
         .text-xs { font-size: 0.75rem; }
         .text-secondary { color: var(--text-secondary); }
         .w-full { width: 100%; }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
         
         /* Layout */
         #app-layout {
@@ -185,6 +186,70 @@
             justify-content: space-between;
         }
 
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-search {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-subtle);
+            border-radius: 999px;
+            padding: 0.35rem 0.6rem;
+        }
+
+        .header-search input {
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            width: 180px;
+        }
+
+        .header-search input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .search-count {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            min-width: 50px;
+            text-align: right;
+        }
+
+        .search-nav {
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .search-nav button {
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            color: var(--text-secondary);
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .search-nav button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .search-nav button:hover:not(:disabled) {
+            background: rgba(255,255,255,0.08);
+            color: var(--text-primary);
+        }
+
         .mobile-menu-btn {
             display: none; /* Desktop default */
             background: none;
@@ -237,6 +302,18 @@
             color: var(--text-secondary);
             margin-bottom: 0.25rem;
             font-weight: 600;
+        }
+
+        mark.search-highlight {
+            background: rgba(250, 204, 21, 0.35);
+            color: inherit;
+            padding: 0 2px;
+            border-radius: 4px;
+        }
+
+        mark.search-highlight.active {
+            background: rgba(250, 204, 21, 0.75);
+            box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.8);
         }
 
         /* RAG Memory Inspector */
@@ -520,6 +597,8 @@
             #sidebar.open { transform: translateX(0); }
             .mobile-menu-btn { display: block; }
             .modal-box { height: 100%; max-height: 100%; border-radius: 0; width: 100%; }
+            .header-search input { width: 110px; }
+            .search-count { display: none; }
         }
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -775,7 +854,16 @@
                         <span id="header-status" style="font-size: 0.8rem; color: var(--text-secondary); opacity: 0;">Online</span>
                     </div>
                 </div>
-                <div>
+                <div class="header-actions">
+                    <div class="header-search">
+                        <label class="sr-only" for="chat-search-input">Search messages</label>
+                        <input id="chat-search-input" type="search" placeholder="Search chat (⌘/Ctrl+F)" autocomplete="off">
+                        <span id="chat-search-count" class="search-count">0 / 0</span>
+                        <div class="search-nav">
+                            <button id="chat-search-prev" type="button" aria-label="Previous match" disabled>↑</button>
+                            <button id="chat-search-next" type="button" aria-label="Next match" disabled>↓</button>
+                        </div>
+                    </div>
                     <button class="btn-icon" onclick="App.openScenarioModal()" title="Scenario & Settings">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v18a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M15 5h-6"/><path d="M3 8h18"/><path d="M3 17h18"/></svg>
                     </button>
@@ -848,7 +936,9 @@
                     .replace(/>/g, "&gt;")
                     .replace(/"/g, "&quot;")
                     .replace(/'/g, "&#039;");
-            }
+            },
+
+            escapeRegExp: (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         };
 
         const SLASH_COMMANDS = [
@@ -1165,6 +1255,11 @@
             constructor() {
                 this.activeThreadId = null;
                 this.dom = {}; 
+                this.searchState = {
+                    query: "",
+                    matches: [],
+                    activeIndex: -1
+                };
                 // Note: DOM references are initialized in init() to ensure elements exist
             }
             
@@ -1177,6 +1272,10 @@
                     sidebar: document.getElementById('sidebar'),
                     loader: document.getElementById('loader'),
                     suggestions: document.getElementById('command-suggestions'),
+                    searchInput: document.getElementById('chat-search-input'),
+                    searchCount: document.getElementById('chat-search-count'),
+                    searchPrev: document.getElementById('chat-search-prev'),
+                    searchNext: document.getElementById('chat-search-next'),
                     // Scenario Modal
                     scenarioAdventureToggle: document.getElementById('scenario-adventure-mode'),
                     scenarioContext: document.getElementById('scenario-context'),
@@ -1184,6 +1283,8 @@
                     scenarioCostarsList: document.getElementById('scenario-costars-list'),
                     scenarioGmStyle: document.getElementById('scenario-gm-style')
                 };
+
+                this.bindSearchHandlers();
             }
 
             hideLoader() {
@@ -1339,15 +1440,18 @@
                 div.innerHTML = `
                     <div class="message-bubble prose">
                         <div class="message-sender flex justify-between">
-                            <span>${role === 'user' ? 'You' : 'AI'}</span>
+                            <span class="sender-label">${role === 'user' ? 'You' : 'AI'}</span>
                         </div>
-                        ${processedContent}
+                        <div class="message-content">${processedContent}</div>
                         ${memoryHtml}
                     </div>
                 `;
                 
                 this.dom.chatFeed.appendChild(div);
                 this.scrollToBottom();
+                if (this.searchState.query) {
+                    requestAnimationFrame(() => this.applySearch(this.searchState.query));
+                }
                 return div.querySelector('.message-bubble'); 
             }
 
@@ -1398,6 +1502,119 @@
                 if (e.key === 'Escape') {
                     this.hideSuggestions();
                 }
+            }
+
+            bindSearchHandlers() {
+                if (!this.dom.searchInput) return;
+                this.dom.searchInput.addEventListener('input', (e) => {
+                    this.applySearch(e.target.value.trim());
+                });
+                this.dom.searchPrev.addEventListener('click', () => this.navigateSearch(-1));
+                this.dom.searchNext.addEventListener('click', () => this.navigateSearch(1));
+                document.addEventListener('keydown', (e) => {
+                    const isMac = navigator.platform.toUpperCase().includes('MAC');
+                    const modKey = isMac ? e.metaKey : e.ctrlKey;
+                    if (modKey && e.key.toLowerCase() === 'f') {
+                        e.preventDefault();
+                        this.dom.searchInput.focus();
+                        this.dom.searchInput.select();
+                    }
+                });
+            }
+
+            clearHighlights(container) {
+                const marks = container.querySelectorAll('mark.search-highlight');
+                marks.forEach(mark => {
+                    const textNode = document.createTextNode(mark.textContent);
+                    mark.replaceWith(textNode);
+                });
+            }
+
+            highlightMatches(container, query) {
+                const matches = [];
+                const escaped = Utils.escapeRegExp(query);
+                const regex = new RegExp(escaped, 'gi');
+                const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+                    acceptNode: (node) => node.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+                });
+                const textNodes = [];
+                while (walker.nextNode()) {
+                    textNodes.push(walker.currentNode);
+                }
+                textNodes.forEach(node => {
+                    const text = node.nodeValue;
+                    const segments = text.split(regex);
+                    if (segments.length === 1) return;
+                    const fragment = document.createDocumentFragment();
+                    let lastIndex = 0;
+                    text.replace(regex, (match, offset) => {
+                        const before = text.slice(lastIndex, offset);
+                        if (before) fragment.appendChild(document.createTextNode(before));
+                        const mark = document.createElement('mark');
+                        mark.className = 'search-highlight';
+                        mark.textContent = match;
+                        fragment.appendChild(mark);
+                        matches.push(mark);
+                        lastIndex = offset + match.length;
+                    });
+                    const after = text.slice(lastIndex);
+                    if (after) fragment.appendChild(document.createTextNode(after));
+                    node.replaceWith(fragment);
+                });
+                return matches;
+            }
+
+            applySearch(query) {
+                if (!this.dom.chatFeed) return;
+                this.searchState.query = query;
+                this.searchState.matches = [];
+                this.searchState.activeIndex = -1;
+
+                const messageContents = this.dom.chatFeed.querySelectorAll('.message-content');
+                messageContents.forEach(container => this.clearHighlights(container));
+
+                if (!query) {
+                    this.updateSearchNav();
+                    return;
+                }
+
+                messageContents.forEach(container => {
+                    const found = this.highlightMatches(container, query);
+                    this.searchState.matches.push(...found);
+                });
+
+                if (this.searchState.matches.length > 0) {
+                    this.searchState.activeIndex = 0;
+                    this.activateMatch(0);
+                }
+                this.updateSearchNav();
+            }
+
+            updateSearchNav() {
+                const total = this.searchState.matches.length;
+                const current = total > 0 ? this.searchState.activeIndex + 1 : 0;
+                if (this.dom.searchCount) this.dom.searchCount.textContent = `${current} / ${total}`;
+                const disabled = total === 0;
+                if (this.dom.searchPrev) this.dom.searchPrev.disabled = disabled;
+                if (this.dom.searchNext) this.dom.searchNext.disabled = disabled;
+            }
+
+            activateMatch(index) {
+                const matches = this.searchState.matches;
+                if (!matches.length) return;
+                matches.forEach(mark => mark.classList.remove('active'));
+                const active = matches[index];
+                if (!active) return;
+                active.classList.add('active');
+                active.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+
+            navigateSearch(direction) {
+                const total = this.searchState.matches.length;
+                if (!total) return;
+                this.searchState.activeIndex = (this.searchState.activeIndex + direction + total) % total;
+                this.activateMatch(this.searchState.activeIndex);
+                this.updateSearchNav();
             }
         }
 
@@ -1510,6 +1727,10 @@
                 if (messages.length === 0) {
                     const opening = thread.character.firstMes || `*${thread.character.name} connects.*\n\n${thread.character.tagline}`;
                     this.ui.appendMessage('ai', opening);
+                }
+
+                if (this.ui.searchState.query) {
+                    this.ui.applySearch(this.ui.searchState.query);
                 }
             }
 
@@ -1711,6 +1932,8 @@
                 this.ui.appendMessage('user', text);
 
                 const responseContainer = this.ui.appendMessage('ai', '...');
+                const responseContent = responseContainer.querySelector('.message-content');
+                const responseSender = responseContainer.querySelector('.sender-label');
                 let fullResponse = "";
                 
                 try {
@@ -1737,10 +1960,11 @@
                     const streamer = this.ai.streamResponse(text, contextData, this.db.settings);
                     
                     for await (const chunk of streamer) {
-                        if (fullResponse === "") responseContainer.innerHTML = ""; 
+                        if (fullResponse === "") responseContent.innerHTML = ""; 
                         fullResponse += chunk;
-                        if(!window.marked) responseContainer.innerText = fullResponse;
-                        else responseContainer.innerHTML = `<div class="message-sender">${config.adventureMode ? 'Game Master' : 'AI'}</div>` + window.marked.parse(fullResponse);
+                        if (responseSender) responseSender.textContent = config.adventureMode ? 'Game Master' : 'AI';
+                        if(!window.marked) responseContent.innerText = fullResponse;
+                        else responseContent.innerHTML = window.marked.parse(fullResponse);
                         this.ui.scrollToBottom();
                     }
                     
