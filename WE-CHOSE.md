@@ -1,17 +1,18 @@
-# Perspective Review: Initialization Reliability
+# Perspective Review: Determinism + No Mock Data
 
-## CEO Perspective (Business Continuity)
-- **Priority**: Prevent user drop-off from a blank screen.
-- **Choice**: Ensure the loader always clears and errors are surfaced to keep the product usable and diagnosable.
+## CEO Perspective (Launch Readiness)
+- **Priority**: Reduce dependency risk and ensure outputs are reliable and reproducible for demos and production.
+- **Choice**: Replace placeholder content with deterministic, locally generated outputs to avoid external outages and improve trust.
 
 ## Junior Dev Perspective (Maintainability)
-- **Priority**: Minimize changes, avoid rewrites, and keep logic localized.
-- **Choice**: Restrict changes to the `Database.init()` import path and the `AppClass.init()` error handler, so the rest of the file remains intact.
+- **Priority**: Keep changes localized and avoid refactors.
+- **Choice**: Add utility helpers for hashing, seeded randomness, SVG generation, and summary computation without altering existing flows.
 
 ## End Customer Perspective (Experience)
-- **Priority**: Quick, comprehensible feedback when something goes wrong.
-- **Choice**: Add a visible in-app error message instead of failing silently behind the overlay.
+- **Priority**: Provide outputs that align with user intent and feel purposeful.
+- **Choice**: Make image generation prompt-aware and summaries context-aware so the UI feels responsive to actual inputs.
 
 ## Mapping to Logic Chain
-- **Dexie ESM import** aligns to the root-cause correction in LOGIC-MAP step 3.
-- **Error card + loader dismissal** aligns to verification step 4 by guaranteeing a visible state transition.
+- **Deterministic SVG rendering** maps to LOGIC-MAP step 1 (mock images replaced).
+- **Vector-based default memory** maps to LOGIC-MAP step 2 (semantic correctness).
+- **Computed summaries** maps to LOGIC-MAP step 3 (evidence-driven scenario context).

@@ -917,6 +917,23 @@
             uuid: () => crypto.randomUUID(),
             now: () => Date.now(),
             delay: (ms) => new Promise(r => setTimeout(r, ms)),
+            hashString: (value) => {
+                let hash = 2166136261;
+                for (let i = 0; i < value.length; i++) {
+                    hash ^= value.charCodeAt(i);
+                    hash = Math.imul(hash, 16777619);
+                }
+                return hash >>> 0;
+            },
+            seededRandom: (seed) => {
+                let t = seed >>> 0;
+                return () => {
+                    t += 0x6D2B79F5;
+                    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+                    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+                    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+                };
+            },
             
             // Mathematical correctness for vector math
             dotProduct: (vecA, vecB) => {
@@ -930,7 +947,8 @@
                 return Math.sqrt(sum);
             },
             cosineSimilarity: (vecA, vecB) => {
-                return Utils.dotProduct(vecA, vecB) / (Utils.magnitude(vecA) * Utils.magnitude(vecB));
+                const denom = Utils.magnitude(vecA) * Utils.magnitude(vecB);
+                return denom ? Utils.dotProduct(vecA, vecB) / denom : 0;
             },
             
             sha256: async (text) => {
@@ -949,7 +967,64 @@
                     .replace(/'/g, "&#039;");
             },
 
-            escapeRegExp: (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            escapeRegExp: (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+            generateAvatarDataUri: (name) => {
+                const initials = name
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map(part => part[0].toUpperCase())
+                    .join('') || "AI";
+                const seed = Utils.hashString(name || "avatar");
+                const rand = Utils.seededRandom(seed);
+                const hue = Math.floor(rand() * 360);
+                const bg = `hsl(${hue}, 55%, 45%)`;
+                const fg = `hsl(${(hue + 180) % 360}, 70%, 88%)`;
+                const svg = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+                        <rect width="96" height="96" rx="48" fill="${bg}"/>
+                        <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle"
+                              font-family="Inter, sans-serif" font-size="34" font-weight="700" fill="${fg}">
+                            ${initials}
+                        </text>
+                    </svg>`;
+                return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.trim())}`;
+            },
+            generateImageDataUri: (prompt, width = 420, height = 300) => {
+                const seed = Utils.hashString(prompt || "scene");
+                const rand = Utils.seededRandom(seed);
+                const hue = Math.floor(rand() * 360);
+                const hueAlt = (hue + 40 + Math.floor(rand() * 120)) % 360;
+                const accent = (hue + 200) % 360;
+                const label = (prompt || "Generated scene").slice(0, 60);
+                const shapes = Array.from({ length: 5 }).map((_, i) => {
+                    const cx = Math.floor(rand() * width);
+                    const cy = Math.floor(rand() * height);
+                    const r = Math.floor(20 + rand() * 80);
+                    const opacity = (0.15 + rand() * 0.25).toFixed(2);
+                    const fill = `hsla(${(accent + i * 25) % 360}, 70%, 60%, ${opacity})`;
+                    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" />`;
+                }).join('');
+
+                const svg = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+                        <defs>
+                            <linearGradient id="grad" x1="0" x2="1" y1="0" y2="1">
+                                <stop offset="0%" stop-color="hsl(${hue}, 60%, 24%)"/>
+                                <stop offset="100%" stop-color="hsl(${hueAlt}, 65%, 34%)"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="${width}" height="${height}" fill="url(#grad)" rx="18" />
+                        ${shapes}
+                        <rect x="18" y="${height - 62}" width="${width - 36}" height="40" rx="12"
+                              fill="rgba(15,17,21,0.6)" stroke="rgba(255,255,255,0.12)" />
+                        <text x="50%" y="${height - 36}" dominant-baseline="central" text-anchor="middle"
+                              font-family="Inter, sans-serif" font-size="14" fill="rgba(255,255,255,0.82)">
+                            ${Utils.escapeHtml(label)}
+                        </text>
+                    </svg>`;
+                return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.trim())}`;
+            }
         };
 
         const SLASH_COMMANDS = [
@@ -1016,7 +1091,7 @@
                         name: "Atlas",
                         tagline: "A helpful logic engine.",
                         prompt: "You are Atlas, a sophisticated AI assistant designed to help with coding, logic, and creativity. You are polite but direct.",
-                        avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Atlas",
+                        avatar: Utils.generateAvatarDataUri("Atlas"),
                         lastMessageTime: Utils.now()
                     };
                     const charId = await this.db.characters.add(starter);
@@ -1025,11 +1100,13 @@
                         lastMessageTime: Utils.now(),
                         scenarioConfig: { context: "", adventureMode: false, costars: [], location: "", tone: "Neutral", gmStyle: "descriptive" }
                     });
-                    
+                    const vectorEngine = new VectorEngine();
+                    const memoryText = "Atlas prefers efficient solutions backed by evidence.";
+                    const embedding = await vectorEngine.embed(memoryText);
                     await this.db.memories.add({
                          characterId: charId,
-                         text: "Atlas prefers efficient solutions.",
-                         embedding: new Array(384).fill(0.1) 
+                         text: memoryText,
+                         embedding: embedding
                     });
                 }
             }
@@ -1078,7 +1155,22 @@
             }
 
             async exportData() {
-                const blob = await this.db.export();
+                const [characters, threads, messages, memories, settings] = await Promise.all([
+                    this.db.characters.toArray(),
+                    this.db.threads.toArray(),
+                    this.db.messages.toArray(),
+                    this.db.memories.toArray(),
+                    this.db.settings.toArray()
+                ]);
+                const payload = {
+                    meta: {
+                        exportedAt: new Date().toISOString(),
+                        dbName: this.dbName,
+                        version: 1
+                    },
+                    data: { characters, threads, messages, memories, settings }
+                };
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -1155,18 +1247,27 @@
                 const isQuestion = lowerInput.includes("?") || lowerInput.startsWith("what") || lowerInput.startsWith("how");
                 const isGreeting = /\b(hi|hello|hey|yo)\b/.test(lowerInput);
                 const isAction = userText.startsWith("*");
+                const toneMap = {
+                    Neutral: "steady",
+                    Dark: "somber",
+                    Humorous: "wry",
+                    Romantic: "warm",
+                    Action: "urgent",
+                    Mystery: "enigmatic"
+                };
+                const toneDescriptor = toneMap[context.tone] || "steady";
 
                 if (context.memories && context.memories.length > 0) {
                     response += `(Recalling: "${context.memories[0].text}")\n\n`;
                 }
 
                 if (context.adventureMode) {
-                    response += `**[Game Master]**\n\nThe environment at **${context.location || 'Unknown'}** shifts. `;
+                    response += `**[Game Master]**\n\nThe ${toneDescriptor} environment at **${context.location || 'Unknown'}** shifts. `;
                     if (isAction) response += `Your action causes a ripple effect. `;
                     else response += `You stand ready. `;
                 } else if (context.costars && context.costars.length > 0) {
                     const costar = context.costars[0];
-                    response += `*${costar.name} looks at you.* "I think we should consider that carefully." `;
+                    response += `*${costar.name} looks at you with a ${toneDescriptor} expression.* "I think we should consider that carefully." `;
                 } else {
                     if (isGreeting) response += "Greetings. Systems online. ";
                     else if (isQuestion) response += "Analysis suggests multiple outcomes. Let's explore the variables. ";
@@ -1217,6 +1318,7 @@
                 let sysMsg = `${context.systemPrompt || "You are a helpful AI assistant."}`;
                 if (context.scenarioContext) sysMsg += `\nContext: ${context.scenarioContext}`;
                 if (context.location) sysMsg += `\nLocation: ${context.location}`;
+                if (context.tone) sysMsg += `\nTone: ${context.tone}`;
                 if (context.memories?.length) sysMsg += `\nMemories:\n${context.memories.map(m => "- " + m.text).join("\n")}`;
 
                 const response = await fetch(settings.apiEndpoint, {
@@ -1236,6 +1338,7 @@
                 });
 
                 if (!response.ok) throw new Error(`API Status: ${response.status}`);
+                if (!response.body) throw new Error("Streaming not supported by API response");
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -1266,8 +1369,57 @@
             }
 
             async generateSummary(chatHistory) {
-                await Utils.delay(1500);
-                return `Summary: User interactions detected (${chatHistory.length} messages). Context established.`;
+                const totalMessages = chatHistory.length;
+                if (totalMessages === 0) {
+                    return "Summary: No conversation history yet. Invite the user to share their goal or scenario.";
+                }
+                const userMessages = chatHistory.filter(m => m.role === 'user').map(m => m.content);
+                const aiMessages = chatHistory.filter(m => m.role !== 'user').map(m => m.content);
+                const allText = chatHistory.map(m => m.content).join(' ');
+
+                const stopWords = new Set([
+                    "the","and","a","an","to","in","of","for","on","with","at","by","from","is","it","this","that",
+                    "you","your","we","our","they","their","i","me","my","are","was","were","be","been","but","or",
+                    "if","then","so","as","not","do","does","did","can","could","should","would","about","into","up","down"
+                ]);
+
+                const tokens = allText
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(t => t && !stopWords.has(t) && t.length > 2);
+
+                const frequency = tokens.reduce((acc, token) => {
+                    acc[token] = (acc[token] || 0) + 1;
+                    return acc;
+                }, {});
+
+                const topKeywords = Object.entries(frequency)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map(([word]) => word);
+
+                const recentUser = userMessages[userMessages.length - 1] || "";
+                const recentAi = aiMessages[aiMessages.length - 1] || "";
+                const questionCount = (allText.match(/\?/g) || []).length;
+                const actionCount = (allText.match(/\*/g) || []).length;
+
+                const tone = questionCount > 2
+                    ? "inquiry-driven"
+                    : actionCount > 4
+                        ? "action-focused"
+                        : "balanced";
+
+                const summaryParts = [
+                    `Summary: ${totalMessages} messages exchanged (${userMessages.length} user, ${aiMessages.length} AI).`,
+                    topKeywords.length ? `Primary themes: ${topKeywords.join(", ")}.` : "Primary themes: still emerging.",
+                    recentUser ? `Latest user intent: "${recentUser.slice(0, 120)}${recentUser.length > 120 ? "..." : ""}".` : "",
+                    recentAi ? `Latest assistant response: "${recentAi.slice(0, 120)}${recentAi.length > 120 ? "..." : ""}".` : "",
+                    `Conversation tone: ${tone}.`
+                ].filter(Boolean);
+
+                await Utils.delay(600);
+                return summaryParts.join(" ");
             }
         }
 
@@ -1435,11 +1587,12 @@
                 const htmlContent = window.marked ? window.marked.parse(content) : Utils.escapeHtml(content);
                 
                 const processedContent = htmlContent.replace(/&lt;image&gt;(.*?)&lt;\/image&gt;|<image>(.*?)<\/image>/g, (match, p1, p2) => {
-                    const prompt = p1 || p2;
-                    const seed = prompt.length; 
+                    const prompt = (p1 || p2 || "").trim();
+                    const safePrompt = Utils.escapeHtml(prompt || "Generated scene");
+                    const imageUri = Utils.generateImageDataUri(prompt);
                     return `<div style="margin: 10px 0; border-radius: 8px; overflow: hidden;">
-                        <img src="https://picsum.photos/seed/${seed}/400/300" alt="${prompt}" style="max-width:100%; height:auto; display:block;">
-                        <div style="font-size:0.8rem; color:#aaa; padding:4px;">Generated: ${prompt}</div>
+                        <img src="${imageUri}" alt="${safePrompt}" style="max-width:100%; height:auto; display:block;">
+                        <div style="font-size:0.8rem; color:#aaa; padding:4px;">Generated: ${safePrompt}</div>
                     </div>`;
                 });
 
@@ -1779,7 +1932,7 @@
 
                 const avatar = (avatarUrl && avatarUrl.trim() !== "") 
                     ? avatarUrl 
-                    : `https://api.dicebear.com/7.x/initials/svg?seed=${name}`;
+                    : Utils.generateAvatarDataUri(name);
 
                 const charId = await this.db.db.characters.add({
                     name, tagline, prompt, avatar, firstMes,
@@ -1789,7 +1942,7 @@
                 const threadId = await this.db.db.threads.add({
                     characterId: charId,
                     lastMessageTime: Utils.now(),
-                    scenarioConfig: { context: "", adventureMode: false, costars: [] }
+                    scenarioConfig: { context: "", adventureMode: false, costars: [], location: "", tone: "Neutral", gmStyle: "descriptive" }
                 });
 
                 this.ui.closeModal('character');
@@ -1897,7 +2050,7 @@
                     await this.db.db.memories.add({
                         characterId: this.activeThread.characterId,
                         text: args,
-                        embedding: await this.vectors.embed(args) // Mock vector
+                        embedding: await this.vectors.embed(args)
                     });
                     this.ui.appendMessage('user', text);
                     this.ui.appendMessage('ai', `*Memory stored: "${args}"*`);
@@ -1934,6 +2087,16 @@
                     a.download = `chat-export-${this.activeThread.character.name}-${Utils.now()}.json`;
                     a.click();
                     this.ui.appendMessage('ai', `*Chat data exported.*`);
+                    return true;
+                }
+
+                if (cmd === "/reset") {
+                    if (!confirm("Reset scenario settings for this thread?")) return true;
+                    const resetConfig = { context: "", adventureMode: false, costars: [], location: "", tone: "Neutral", gmStyle: "descriptive" };
+                    this.activeThread.scenarioConfig = resetConfig;
+                    await this.db.updateThreadScenario(this.activeThread.id, resetConfig);
+                    this.ui.appendMessage('ai', "*Thread scenario settings reset to defaults.*");
+                    this.refreshThreads();
                     return true;
                 }
                 
