@@ -654,7 +654,10 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">API Key</label>
-                    <input type="password" id="settings-api-key" class="form-input" placeholder="sk-...">
+                    <div class="flex gap-2">
+                        <input type="password" id="settings-api-key" class="form-input" placeholder="sk-..." style="flex-grow:1;">
+                        <button id="test-connection-btn" onclick="App.testConnection()" class="btn-secondary" style="height:auto;">Test</button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Model Name</label>
@@ -1732,6 +1735,65 @@
                 await this.db.updateSetting('apiEndpoint', apiEndpoint);
                 await this.db.updateSetting('apiKey', apiKey);
                 await this.db.updateSetting('apiModel', apiModel);
+            }
+
+            async testConnection() {
+                const btn = document.getElementById('test-connection-btn');
+                if (!btn) return;
+
+                const originalText = btn.innerText;
+                btn.innerText = 'Testing...';
+                btn.disabled = true;
+
+                const apiEndpoint = document.getElementById('settings-api-url').value;
+                const apiKey = document.getElementById('settings-api-key').value;
+                const apiModel = document.getElementById('settings-api-model').value;
+
+                if (!apiEndpoint || !apiKey) {
+                    alert("API Endpoint and API Key are required.");
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                    return;
+                }
+
+                try {
+                    const response = await fetch(apiEndpoint, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: apiModel || "gpt-3.5-turbo",
+                            messages: [{ role: "user", content: "Test" }],
+                            max_tokens: 1,
+                            stream: false
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API Status: ${response.status} ${response.statusText}`);
+                    }
+
+                    await response.json();
+
+                    btn.innerText = 'Success!';
+                    btn.style.borderColor = 'green';
+                    btn.style.color = 'green';
+
+                } catch (e) {
+                    console.error("Connection test failed:", e);
+                    btn.innerText = 'Failed';
+                    btn.style.borderColor = 'red';
+                    btn.style.color = 'red';
+                } finally {
+                    setTimeout(() => {
+                        btn.innerText = originalText;
+                        btn.disabled = false;
+                        btn.style.borderColor = '';
+                        btn.style.color = '';
+                    }, 3000);
+                }
             }
 
             async refreshThreads() {
